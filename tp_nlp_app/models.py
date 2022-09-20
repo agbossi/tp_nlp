@@ -13,6 +13,7 @@ class Place(models.Model):
     placeId = models.CharField(max_length=70)
     latitude = models.DecimalField(max_digits=6, decimal_places=3)
     longitude = models.DecimalField(max_digits=6, decimal_places=3)
+    summarized = models.BooleanField(default=False)
 
 
 class Summary(models.Model):

@@ -1,18 +1,26 @@
 import time
 import datetime
 from tp_nlp_app import selectors
-from tp_nlp_app.exceptions import IllegalArgumentsException
+from tp_nlp_app.exceptions import IllegalArgumentsException, PlaceNotFoundException
 from tp_nlp_app.models import Place, Summary, Review, ReviewQuery
 from requests_futures.sessions import FuturesSession
+from tp_nlp_processing import processor
+
+
+def create_place(place):
+    full_place = get_place_from_google(place.name, place.latitude, place.longitude)
+    full_place.save()
+    good_reviews = get_reviews_from_scrapper(full_place, 5, sort_by='highest_rating')
+    bad_reviews = get_reviews_from_scrapper(full_place, 5, sort_by='lowest_rating')
+    reviews = good_reviews + bad_reviews
+    Review.objects.bulk_create(reviews, ignore_conflicts=True)
+    processor.generate_place_summary(place)
 
 
 def get_place_summary(_id, name, lat, lng):
     place = get_place_from_db(_id, name, round(float(lat), 3), round(float(lng), 3))
     if place is None:
-        place = get_place_from_google(name, lat, lng)
-        place.save()
-    reviews = get_reviews_from_scrapper(place, 1)
-    Review.objects.bulk_create(reviews, ignore_conflicts=True)
+        raise PlaceNotFoundException("Place not in db")
     return place.summary  # esto explota
 
 
@@ -30,7 +38,7 @@ def get_place_from_google(name, lat, long):
     base_url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json?"
     sanitized_name = name.replace(" ", "%20")
     params = "input=" + sanitized_name + "&inputtype=textquery"
-    location_bias = "&locationbias=circle%3A2000%40" + lat + "%2C" + long
+    location_bias = "&locationbias=circle%3A3000%40" + lat + "%2C" + long
     fields = "&fields=name%2Cplace_id%2Crating%2Cgeometry"
     key = "&key=" + selectors.get_maps_token().value
     url = base_url + params + location_bias + fields + key
@@ -60,11 +68,12 @@ def get_reviews_from_scrapper(place, reviews_amount, sort_by='most_relevant'):
     base_url = "https://api.app.outscraper.com/maps/reviews-v3?"
     query = "query=" + place.placeId
     ignore_empty = "&ignoreEmpty=true"
+    language = "&language=es"
     reviews_amount = "&reviewsLimit=" + str(reviews_amount)
     sort = "&sort=" + query_history.sortType.sortBy
     skip = "&skip=" + str(query_history.searchIndex)
     is_async = "&async=true"
-    url = base_url + query + ignore_empty + reviews_amount + sort + skip + is_async
+    url = base_url + query + ignore_empty + reviews_amount + language + sort + skip + is_async
     headers = {'X-API-KEY': selectors.get_scrapper_token().value}
     hooks = {'response': response_hook}
     response = async_get(url=url, headers=headers, hooks=hooks)
@@ -85,7 +94,7 @@ def get_reviews_from_scrapper(place, reviews_amount, sort_by='most_relevant'):
 
 
 def format_scrapper_datetime(dt):
-    return datetime.datetime.strptime(dt, '%d/%m/%Y %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+    return datetime.datetime.strptime(dt, '%m/%d/%Y %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
 
 
 def async_get(url, headers=None, hooks=None):

@@ -6,7 +6,7 @@ from tp_nlp_app.models import Place, Summary, Review
 class PlaceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Place
-        fields = ['name', 'rate', 'id']
+        fields = ['name', 'rate', 'latitude', 'longitude']
 
 
 class SummarySerializer(serializers.ModelSerializer):
@@ -18,4 +18,4 @@ class SummarySerializer(serializers.ModelSerializer):
 class ReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
-        fields = ['placeId', 'text']
+        fields = ['placeId', 'text', 'date', 'rating', 'likes', 'reviewId']
