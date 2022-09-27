@@ -17,3 +17,7 @@ def response_bad_request(*, errors) -> Response:
 
 def response_error(*, status=status, str_err: str) -> Response:
     return Response({'message_error': str_err}, status=status)
+
+
+def response_no_content() -> Response:
+    return Response(status=status.HTTP_204_NO_CONTENT)

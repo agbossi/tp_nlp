@@ -1,27 +1,40 @@
+import math
 import os
 
 import nltk as nltk
 import spacy
 import re
 from nltk.corpus import stopwords
-from pysentimiento import SentimentAnalyzer
+from pysentimiento import create_analyzer
 from tp_nlp_processing import visualizer
-from tp_nlp_app.models import Place
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from tp_nlp_app.models import Place, Summary
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 nltk.download('punkt')
-nlp = spacy.load(r'/home/abossi/anaconda3/lib/python3.7/site-packages/es_core_news_md/es_core_news_md-3.4.0')
+nlp = spacy.load('es_core_news_md')
+stop_list = stopwords.words("spanish")
 
 
 def generate_place_summary(place):
     reviews = place.review_set.all()
+    reviews_amount = len(reviews)
     clean_reviews = remove_crap(reviews)
     statements = get_statements_from_reviews(clean_reviews)
+    sentences_amount = len(statements)
+    blacklisted_words = place.blacklistedword_set.all()
+    stop_list.extend(list(map(lambda w: w.word, blacklisted_words)))
     sentiment_dataset = sentiment_analysis(statements)
 
+    print('starting summary')
     for key, value in sentiment_dataset.items():
         sentiment_dataset[key] = normalize(value)
-    generate_summary(sentiment_dataset, place)
+    place = generate_summary(sentiment_dataset, place)
+    summary = Summary(place=place, good=place.good, bad=place.bad, neutral=place.neutral,
+                      goodTokens=place.goodTokens, badTokens=place.badTokens,
+                      neutralTokens=place.neutralTokens,
+                      reviewsAmount=reviews_amount, sentencesAmount=sentences_amount)
+    summary.save()
+    print('summary generated')
 
 
 def sentiment_analysis(statements):
@@ -29,7 +42,7 @@ def sentiment_analysis(statements):
     bad_statements = []
     neutral_statements = []
     sentiment_dataset = {'NEU': neutral_statements, 'POS': good_statements, 'NEG': bad_statements}
-    analyzer = SentimentAnalyzer(lang="es")
+    analyzer = create_analyzer(task="sentiment", lang="es")
 
     predictions = analyzer.predict(statements)
     for prediction in predictions:
@@ -98,7 +111,6 @@ def lemmatize_statement(statement):
 
 
 def remove_stopwords(statement):
-    stop_list = stopwords.words("spanish")
     filtered_statement = []
     if len(statement.split(' ')) == 1:
         return ''
@@ -111,11 +123,13 @@ def remove_stopwords(statement):
 
 
 def generate_summary(sentiment_dataset, place):
-    base_path = os.path.dirname(os.path.abspath('summaries'))
+    base_path = os.path.dirname(os.path.abspath('tp_nlp_ui'))
+    base_path += "/tp_nlp_ui/public/"
     place_path = 'summaries/' + place.placeId + '/'
     full_path = base_path + "/" + place_path
     fmt = '.png'
-    os.mkdir(full_path)
+    if not os.path.exists(full_path):
+        os.makedirs(full_path)
 
     place.good = ''.join(sentiment_dataset['POS'])
     sentiment_dataset['POS'] = place.good
@@ -124,12 +138,34 @@ def generate_summary(sentiment_dataset, place):
     place.neutral = ''.join(sentiment_dataset['NEU'])
     sentiment_dataset['NEU'] = place.neutral
     place.save()
+    important_tokens = {}
     for key, value in sentiment_dataset.items():
         text = sentiment_dataset[key]
-        visualizer.generate_wordcloud(text, full_path + key + fmt)
+        visualizer.generate_wordcloud(text, stop_list, full_path + key + fmt)
+        important_tokens[key] = count_vectorize(text)
+    place.goodTokens = important_tokens['POS']
+    place.badTokens = important_tokens['NEG']
+    place.neutralTokens = important_tokens['NEU']
+    return place
 
-# primeros 15 de clase
+
 def count_vectorize(classified_reviews):
-    cv = CountVectorizer(ngram_range=[1, 2], max_df=0.8, min_df=2, max_features=None, stop_words=None)
+    text_in_list = [classified_reviews]
+    tfidf = TfidfVectorizer(ngram_range=[1, 2], max_features=None)
+    TNG_tfidf = tfidf.fit_transform(text_in_list)
+    return collect_remarkable_tokens(tfidf.get_feature_names_out(), TNG_tfidf[0].data)
 
-    TNG_cv = cv.fit_transform(classified_reviews)
+
+def collect_remarkable_tokens(tokens, frequencies):
+    tokens_to_select = math.ceil(len(tokens) * 0.15)
+    remarkable_tokens = ""
+    token_frequency = dict(zip(tokens, frequencies))
+    for token in sorted(token_frequency, key=token_frequency.get, reverse=True):
+        remarkable_tokens += token
+        remarkable_tokens += "|"
+        tokens_to_select -= 1
+        if tokens_to_select == 0:
+            break
+
+    remarkable_tokens = remarkable_tokens[:-1]
+    return remarkable_tokens

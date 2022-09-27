@@ -3,7 +3,7 @@ from tp_nlp_app.models import Summary, Token, ReviewQuery, QueryType, Place
 
 
 def get_summary_by_id(_id):
-    return Summary.objects.filter(placeId=_id).first()
+    return Summary.objects.filter(place__placeId=_id).first()
 
 
 def get_summary_by_place_name(name, lat, lng):

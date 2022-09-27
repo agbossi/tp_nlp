@@ -10,18 +10,37 @@ from tp_nlp_processing import processor
 def create_place(place):
     full_place = get_place_from_google(place.name, place.latitude, place.longitude)
     full_place.save()
-    good_reviews = get_reviews_from_scrapper(full_place, 5, sort_by='highest_rating')
-    bad_reviews = get_reviews_from_scrapper(full_place, 5, sort_by='lowest_rating')
+    add_reviews_to_place(full_place)
+    place = get_place_from_db(place.placeId, None, None, None)
+    processor.generate_place_summary(place)
+    full_place.summarized = True
+    full_place.save()
+    print('summary saved')
+
+
+def reset_summary(place):
+    summary = get_place_summary(place.placeId, None, None, None)
+    summary.delete()
+    place.summarized = False
+    place.save()
+
+
+def add_reviews_to_place(place):
+    good_reviews = get_reviews_from_scrapper(place, 10, sort_by='highest_rating')
+    bad_reviews = get_reviews_from_scrapper(place, 10, sort_by='lowest_rating')
     reviews = good_reviews + bad_reviews
     Review.objects.bulk_create(reviews, ignore_conflicts=True)
-    processor.generate_place_summary(place)
 
 
 def get_place_summary(_id, name, lat, lng):
-    place = get_place_from_db(_id, name, round(float(lat), 3), round(float(lng), 3))
+    if lat is not None:
+        lat = round(float(lat), 3)
+    if lng is not None:
+        lng = round(float(lng), 3)
+    place = get_place_from_db(_id, name, lat, lng)
     if place is None:
         raise PlaceNotFoundException("Place not in db")
-    return place.summary  # esto explota
+    return selectors.get_summary_by_id(_id)
 
 
 def get_place_from_db(_id, name, lat, lng):
@@ -60,7 +79,7 @@ def get_place_from_google(name, lat, long):
 #  parametros skip y sort podrian ser utiles
     #  sort permite hacer ordenamiento de maps, para buscar buenas y malas no a ciegas
     #  skip "util para paginacion" saltea N items -> se podria asumir que es lineal para una misma query
-def get_reviews_from_scrapper(place, reviews_amount, sort_by='most_relevant'):
+def get_reviews_from_scrapper(place, amount, sort_by='most_relevant'):
     query_history = selectors.get_search_history_for_query(place, sort_by)
     if query_history is None:
         query_history = ReviewQuery(place=place, sortType=selectors.get_query_type_by_name(sort_by))
@@ -69,7 +88,7 @@ def get_reviews_from_scrapper(place, reviews_amount, sort_by='most_relevant'):
     query = "query=" + place.placeId
     ignore_empty = "&ignoreEmpty=true"
     language = "&language=es"
-    reviews_amount = "&reviewsLimit=" + str(reviews_amount)
+    reviews_amount = "&reviewsLimit=" + str(amount)
     sort = "&sort=" + query_history.sortType.sortBy
     skip = "&skip=" + str(query_history.searchIndex)
     is_async = "&async=true"
@@ -78,6 +97,8 @@ def get_reviews_from_scrapper(place, reviews_amount, sort_by='most_relevant'):
     hooks = {'response': response_hook}
     response = async_get(url=url, headers=headers, hooks=hooks)
 
+    query_history.searchIndex += amount
+    query_history.save()
     if response.status_code == 200:
         reviews_info = response.data['data'][0]['reviews_data']
     else:

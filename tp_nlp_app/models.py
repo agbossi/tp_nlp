@@ -19,8 +19,13 @@ class Place(models.Model):
 class Summary(models.Model):
     place = models.OneToOneField(Place, on_delete=models.CASCADE)
     good = models.TextField()
+    goodTokens = models.TextField(default="")
     bad = models.TextField()
+    badTokens = models.TextField(default="")
     neutral = models.TextField()
+    neutralTokens = models.TextField(default="")
+    reviewsAmount = models.IntegerField(default=0)
+    sentencesAmount = models.IntegerField(default=0)
 
 
 class Review(models.Model):
@@ -53,4 +58,7 @@ class ReviewQuery(models.Model):
     sortType = models.ForeignKey(QueryType, on_delete=models.DO_NOTHING, default=1)
 
 
+class BlacklistedWord(models.Model):
+    place = models.ForeignKey(Place, on_delete=models.CASCADE)
+    word = models.CharField(max_length=50)
 
