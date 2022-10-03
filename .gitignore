@@ -161,4 +161,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+.sql
+
 tp_nlp_ui/public/summaries/*
